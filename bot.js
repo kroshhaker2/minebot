@@ -65,11 +65,13 @@ async function getAIReply(message, chatHistory) {
 bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
+    playerMsg = `${username}: ${message}`;
+
     // Загружаем чат из памяти
     let chatHistory = memory.get('chatHistory') || [];
 
     // Сохраняем новое сообщение
-    chatHistory.push({ username, message });
+    chatHistory.push({ username, message: playerMsg });
     memory.set('chatHistory', chatHistory);
 
     // Получаем AI-ответ с контекстом
