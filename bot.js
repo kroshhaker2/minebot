@@ -1,11 +1,15 @@
 // набросок
 
+
 require('dotenv').config();
 const mineflayer = require('mineflayer');
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const memory = require('./memory');
 const fs = require('fs');
 
-// === Создаем бота ===
+// Если Node.js 18+ — встроенный fetch
+const fetch = global.fetch || ((...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args)));
+
+// === Настройки бота ===
 const bot = mineflayer.createBot({
     host: '192.168.1.118',      // IP сервера Minecraft
     port: 4242,            // Порт сервера
@@ -13,38 +17,23 @@ const bot = mineflayer.createBot({
     version: '1.21.8'
 });
 
-// Логирование событий
-bot.on('login', () => console.log('Бот подключился к серверу'));
-bot.on('spawn', () => console.log('Бот заспавнился в мире'));
-bot.on('error', err => console.error('Ошибка бота:', err));
-bot.on('end', () => console.log('Бот отключился'));
+// === Логи ===
+bot.on('login', () => console.log('Бот подключился'));
+bot.on('spawn', () => console.log('Бот заспавнился'));
+bot.on('end', (reason) => console.log('Бот отключился:', reason));
+bot.on('kicked', (reason) => console.log('Бот был кикнут:', reason));
+bot.on('error', (err) => console.log('Ошибка:', err));
 
 // === Загрузка плагинов ===
-fs.readdirSync('./plugins').forEach(file => {
-    const plugin = require(`./plugins/${file}`);
-    if (typeof plugin === 'function') plugin(bot);
-});
+if (fs.existsSync('./plugins')) {
+    fs.readdirSync('./plugins').forEach(file => {
+        const plugin = require(`./plugins/${file}`);
+        if (typeof plugin === 'function') plugin(bot);
+    });
+}
 
-// === Обработка чата и AI ответов ===
-bot.on('chat', async (username, message) => {
-    if (username === bot.username) return;
-
-    console.log(`${username}: ${message}`);
-
-    // Проверка на команду /say
-    if (message.startsWith('/say ')) {
-        const text = message.slice(5);
-        bot.chat(text);
-        return;
-    }
-
-    // ИИ ответ через OpenRouter
-    const reply = await getAIReply(message);
-    if (reply) bot.chat(reply);
-});
-
-// === Функция общения с OpenRouter API ===
-async function getAIReply(message) {
+// === Функция общения с OpenRouter AI ===
+async function getAIReply(message, chatHistory) {
     try {
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
@@ -54,7 +43,13 @@ async function getAIReply(message) {
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini",
-                messages: [{ role: "user", content: message }]
+                messages: [
+                    ...chatHistory.map(m => ({
+                        role: m.username === bot.username ? 'assistant' : 'user',
+                        content: m.message
+                    })),
+                    { role: "user", content: message }
+                ]
             }),
         });
 
@@ -65,3 +60,25 @@ async function getAIReply(message) {
         return null;
     }
 }
+
+// === Обработка чата ===
+bot.on('chat', async (username, message) => {
+    if (username === bot.username) return;
+
+    // Загружаем чат из памяти
+    let chatHistory = memory.get('chatHistory') || [];
+
+    // Сохраняем новое сообщение
+    chatHistory.push({ username, message });
+    memory.set('chatHistory', chatHistory);
+
+    // Получаем AI-ответ с контекстом
+    const reply = await getAIReply(message, chatHistory);
+    if (reply) {
+        bot.chat(reply);
+
+        // Сохраняем ответ бота в память
+        chatHistory.push({ username: bot.username, message: reply });
+        memory.set('chatHistory', chatHistory);
+    }
+});
