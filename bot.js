@@ -5,6 +5,8 @@ require('dotenv').config();
 const mineflayer = require('mineflayer');
 const memory = require('./memory');
 const fs = require('fs');
+const { pathfinder, Movements, goals: { GoalBlock } } = require('mineflayer-pathfinder');
+const mcDataLib = require('minecraft-data');
 
 // Если Node.js 18+ — встроенный fetch
 const fetch = global.fetch || ((...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args)));
@@ -13,9 +15,10 @@ const fetch = global.fetch || ((...args) => import('node-fetch').then(({ default
 const bot = mineflayer.createBot({
     host: '192.168.1.118',      // IP сервера Minecraft
     port: 4242,            // Порт сервера
-    username: 'Furry',    // Ник бота
-    version: '1.21.8'
+    username: 'FurryBot',    // Ник бота
 });
+
+bot.loadPlugin(pathfinder);
 
 // === Логи ===
 bot.on('login', () => console.log('Бот подключился'));
@@ -62,22 +65,25 @@ async function getAIReply(message, chatHistory) {
 }
 
 // === Обработка чата ===
-bot.on('chat', async (username, message) => {
-    if (username === bot.username) return;
+bot.on('messagestr', async (message, position, jsonMsg, sender) => {
+    if (message.startsWith(`${bot.username}:`)) return;
 
-    playerMsg = `${username}: ${message}`;
+    console.log("RAW:", message);
+
+    console.log(message);
 
     // Загружаем чат из памяти
     let chatHistory = memory.get('chatHistory') || [];
 
     // Сохраняем новое сообщение
-    chatHistory.push({ username, message: playerMsg });
+    chatHistory.push({ username: position, message: message });
     memory.set('chatHistory', chatHistory);
 
     // Получаем AI-ответ с контекстом
     const reply = await getAIReply(message, chatHistory);
     if (reply) {
         bot.chat(reply);
+        console.log(`${bot.username}: ${reply}`);
 
         // Сохраняем ответ бота в память
         chatHistory.push({ username: bot.username, message: reply });
